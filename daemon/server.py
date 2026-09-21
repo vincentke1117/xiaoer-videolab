@@ -460,10 +460,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             try:
+                probe_cmd = [YT_DLP, "--dump-json", "--no-playlist", "--playlist-items", "1",
+                             "--socket-timeout", "20"]
+                # Same cookies as the real download — otherwise login-gated sites
+                # (YouTube's "confirm you're not a bot") probe as "no video" on
+                # pages we can actually download fine, and the button lies.
+                if COOKIES_BROWSER:
+                    probe_cmd += ["--cookies-from-browser", COOKIES_BROWSER]
+                probe_cmd.append(target_url)
+                # 45s, not 15s: over a proxy, `--dump-json` on X/YouTube measured
+                # 30-55s here. A 15s cap made every probe time out, so the popup
+                # reported "no video" on pages that download fine.
                 result = subprocess.run(
-                    [YT_DLP, "--dump-json", "--no-playlist", "--playlist-items", "1",
-                     "--socket-timeout", "20", target_url],
-                    capture_output=True, text=True, timeout=15
+                    probe_cmd, capture_output=True, text=True, timeout=45
                 )
                 if result.returncode == 0:
                     info = json.loads(result.stdout.splitlines()[0])

@@ -754,7 +754,7 @@ function isLikelyVideoSite(url) {
 
 async function probeVideo(url) {
   try {
-    const res = await fetch(`${DAEMON}/probe?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(`${DAEMON}/probe?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(50000) });
     if (!res.ok) return null;
     const data = await res.json();
     return data.has_video === true;
