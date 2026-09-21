@@ -123,12 +123,12 @@ UPDPLIST
 launchctl load "$UPD_PLIST" && echo "→ Weekly yt-dlp auto-update scheduled (Sun 4am)"
 
 # ── Native Messaging Host for one-click daemon start from the extension ──
-# NOTE: com.xiaoer.videolab.json has a hardcoded allowed_origins extension ID
-# (objlebheicdclpopinghmbnfdilkmhpd). If you load the extension from a
-# different path, the ID will differ and native messaging will silently fail.
-# To fix: run `chrome.runtime.id` in the extension console and update the
-# allowed_origins in ~/Library/Application Support/*/NativeMessagingHosts/
-# com.xiaoer.videolab.json accordingly.
+# An unpacked extension's ID is derived from the folder it was loaded from, so
+# the ID baked into com.xiaoer.videolab.json only matches the machine it was
+# generated on — everywhere else native messaging fails SILENTLY. So instead of
+# hardcoding it, scan the installed browsers for whichever extension was loaded
+# from THIS repo and allow those IDs too (the baked-in one is kept for
+# compatibility). Re-run this installer after loading the extension.
 NM_SRC="$PROJECT_DIR/daemon/com.xiaoer.videolab.json"
 NM_DIRS=(
   "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
@@ -138,8 +138,34 @@ NM_DIRS=(
 )
 for nm_dir in "${NM_DIRS[@]}"; do
   mkdir -p "$nm_dir"
-  sed "s|__HOST_PATH__|${PROJECT_DIR}/daemon/native-host.py|g" "$NM_SRC" > "$nm_dir/com.xiaoer.videolab.json"
-  echo "  → Native host: $nm_dir/com.xiaoer.videolab.json"
+  "$PYTHON" - "$NM_SRC" "$nm_dir/com.xiaoer.videolab.json" \
+             "$PROJECT_DIR/daemon/native-host.py" "$PROJECT_DIR/extension" <<'NMPY'
+import glob, json, os, sys
+
+src, dst, host_path, ext_dir = sys.argv[1:5]
+cfg = json.load(open(src))
+cfg["path"] = host_path
+
+# Every browser profile that has our unpacked extension loaded from ext_dir.
+prefs = []
+for pat in ("*/*/Secure Preferences", "*/*/*/Secure Preferences",
+            "*/*/Preferences", "*/*/*/Preferences"):
+    prefs += glob.glob(os.path.expanduser("~/Library/Application Support/" + pat))
+for pref in prefs:
+    try:
+        settings = json.load(open(pref)).get("extensions", {}).get("settings", {})
+    except Exception:
+        continue
+    for ext_id, meta in settings.items():
+        if os.path.normpath(meta.get("path", "")) == os.path.normpath(ext_dir):
+            origin = "chrome-extension://%s/" % ext_id
+            if origin not in cfg["allowed_origins"]:
+                cfg["allowed_origins"].append(origin)
+
+json.dump(cfg, open(dst, "w"), indent=2)
+open(dst, "a").write("\n")
+print("  → Native host: %s  (%d origin(s))" % (dst, len(cfg["allowed_origins"])))
+NMPY
 done
 
 echo "→ Waiting for the daemon to come up..."
